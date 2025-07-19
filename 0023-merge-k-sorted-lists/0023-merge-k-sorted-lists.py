@@ -8,14 +8,16 @@ class Solution:
         l=[]
         for i in lists:
             while i:
-                l.append(i.val)
+                heapq.heappush(l,i.val)
                 i=i.next
-        l.sort()
+        print(l)
         if(len(l)==0):
             return None
-        head=ListNode(l[0])
+        head=ListNode()
         ptr=head
-        for i in range(1,len(l)):
-            ptr.next=ListNode(l[i])
+        while l:
+            n=heapq.heappop(l)
+            ptr.next=ListNode(n)
             ptr=ptr.next
-        return head
+        print(l)
+        return head.next

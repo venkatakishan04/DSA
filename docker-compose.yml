@@ -1,0 +1,123 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    container_name: hiresmart_postgres
+    environment:
+      POSTGRES_DB: hiresmart_db
+      POSTGRES_USER: hiresmart_user
+      POSTGRES_PASSWORD: hiresmart_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - hiresmart_network
+
+  # Redis for caching and message broker
+  redis:
+    image: redis:7-alpine
+    container_name: hiresmart_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - hiresmart_network
+
+  # Backend API Gateway
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: hiresmart_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://hiresmart_user:hiresmart_password@postgres:5432/hiresmart_db
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET_KEY=your-super-secret-jwt-key-change-in-production
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./backend:/app
+      - ./ai-models:/app/ai-models
+    networks:
+      - hiresmart_network
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # AI Processing Service
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: hiresmart_ai
+    ports:
+      - "8001:8001"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - MODEL_PATH=/app/models
+    depends_on:
+      - redis
+    volumes:
+      - ./ai-service:/app
+      - ./ai-models:/app/models
+    networks:
+      - hiresmart_network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # Frontend React App
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: hiresmart_frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+      - REACT_APP_WS_URL=ws://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - hiresmart_network
+    command: npm start
+
+  # Code Execution Sandbox
+  code-executor:
+    build:
+      context: ./code-executor
+      dockerfile: Dockerfile
+    container_name: hiresmart_executor
+    ports:
+      - "8002:8002"
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+    volumes:
+      - ./code-executor:/app
+    networks:
+      - hiresmart_network
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+
+volumes:
+  postgres_data:
+
+networks:
+  hiresmart_network:
+    driver: bridge
